@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import mock
+import pytest
 from pyramid import testing
 
 from paasta_tools.api.views import autoscaler
+from paasta_tools.api.views.exception import ApiFailure
 
 
 def test_get_autoscaler_count():
@@ -31,7 +33,8 @@ def test_get_autoscaler_count():
         assert response.json_body['desired_instances'] == 123
 
 
-def test_update_autoscaler_count():
+@mock.patch('paasta_tools.api.views.autoscaler.load_marathon_service_config', autospec=True)
+def test_update_autoscaler_count(mock_load_marathon_service_config):
     request = testing.DummyRequest()
     request.swagger_data = {
         'service': 'fake_service',
@@ -39,8 +42,31 @@ def test_update_autoscaler_count():
         'json_body': {'desired_instances': 123},
     }
 
+    mock_load_marathon_service_config.return_value = mock.MagicMock(
+        get_min_instances=mock.MagicMock(return_value=100),
+        get_max_instances=mock.MagicMock(return_value=200)
+    )
+
     with mock.patch('paasta_tools.api.views.autoscaler.set_instances_for_marathon_service',
                     autospec=True) as mock_set_instances:
         response = autoscaler.update_autoscaler_count(request)
         assert response.json_body['desired_instances'] == 123
         mock_set_instances.assert_called_once_with(service='fake_service', instance='fake_instance', instance_count=123)
+
+
+@mock.patch('paasta_tools.api.views.autoscaler.load_marathon_service_config', autospec=True)
+def test_update_autoscaler_count(mock_load_marathon_service_config):
+    request = testing.DummyRequest()
+    request.swagger_data = {
+        'service': 'fake_service',
+        'instance': 'fake_instance',
+        'json_body': {'desired_instances': 123},
+    }
+
+    mock_load_marathon_service_config.return_value = mock.MagicMock(
+        get_min_instances=mock.MagicMock(return_value=10),
+        get_max_instances=mock.MagicMock(return_value=100)
+    )
+
+    with pytest.raises(ApiFailure):
+        autoscaler.update_autoscaler_count(request)

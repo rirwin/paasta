@@ -19,6 +19,7 @@ from pyramid.response import Response
 from pyramid.view import view_config
 
 from paasta_tools.api import settings
+from paasta_tools.api.views.exception import ApiFailure
 from paasta_tools.marathon_tools import load_marathon_service_config
 from paasta_tools.marathon_tools import set_instances_for_marathon_service
 
@@ -45,6 +46,25 @@ def update_autoscaler_count(request):
     service = request.swagger_data.get('service')
     instance = request.swagger_data.get('instance')
     desired_instances = request.swagger_data.get('json_body')['desired_instances']
+
+    try:
+        service_config = load_marathon_service_config(
+            service=service,
+            instance=instance,
+            cluster=settings.cluster,
+            soa_dir=settings.soa_dir,
+            load_deployments=False,
+        )
+    except:
+        error_message = 'Unable to load service config for %s.%s' % (service, instance)
+        raise ApiFailure(error_message, 404)
+
+    max_instances = service_config.get_max_instances()
+    min_instances = service_config.get_min_instances()
+    if desired_instances > max_instances or desired_instances < min_instances:
+        error_message = 'Incorrect desired_instances %d: min_instances %d max_instances %d' % (desired_instances, min_instances, max_instances)
+        raise ApiFailure(error_message, 400)
+
     set_instances_for_marathon_service(service=service, instance=instance, instance_count=desired_instances)
     response_body = {'desired_instances': desired_instances}
     return Response(json_body=response_body, status_code=202)
